@@ -1,72 +1,125 @@
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module Parseme where
 
 import Data.Char
 import Control.Monad
 import Control.Applicative
 
-data Parser a = Parser { runParser :: String -> [(a, String)] }
+-- data structure for input string
+data Input = Input { inputLoc :: Int
+                   , inputStr :: String
+                   } deriving Show
 
-instance Functor Parser where
-  fmap f p = Parser $ \inp -> let [(o, rest)] = runParser p inp
-                              in [(f o, rest)]
+-- helper for consumption a char from input strem, returning tuple of new position and rest of the input stream
+item :: Input -> Maybe (Char, Input)
+item (Input _ []) = Nothing
+item (Input loc (c:cs)) = Just (c, Input (loc + 1) cs)
 
-instance Applicative Parser where
-  pure v    = Parser $ \inp -> [(v, inp)]
-  pf <*> pv = Parser $ \inp -> let [(f, rest)] = runParser pf inp
-                                   [(o, rest')] = runParser pv rest
-                               in [(f o, rest')]
+run p i = parser p (Input 0 i)
 
-instance Alternative Parser where
-  empty = Parser $ \inp -> []
-  p1 <|> p2 = Parser $ \inp ->
-              case runParser p1 inp of
-                []  -> runParser p2 inp
-                res -> res
+-- data structure for error
+data ParseError = ParseError Int String
 
-instance Monad Parser where
-  return = pure
-  p >>= f = Parser $ \inp -> let [(o, rest)] = runParser p inp
-                             in runParser (f o) rest
+instance Show ParseError where
+  show (ParseError loc err) = "ERROR:\npos#: " <> (show loc) <> "\n" <> err
 
-instance MonadPlus Parser where
-mzero = Parser $ \inp -> []
-mplus p1 p2 = Parser $ \inp -> runParser p1 inp <> runParser p2 inp
+-- data structure for parser
+data Parseme a = Parseme { parser :: Input -> Either ParseError (a, Input) }
 
-zeroP :: Parser String
-zeroP = Parser $ \int -> []
+instance Functor Parseme where
+ fmap f pf = Parseme $ \inp ->
+  do
+    (v, rest) <- parser pf inp
+    return (f v, rest)
+
+instance Applicative Parseme where
+  pure v    = Parseme $ \inp -> Right (v, inp)
+  pf <*> pv = Parseme $ \inp ->
+    do
+      (f, rest')  <- parser pf inp
+      (v, rest'') <- parser pv rest'
+      return (f v, rest'')
+
+instance Alternative (Either ParseError) where
+  empty         = Left $ ParseError 0 "empty"
+  Left _ <|> e2 = e2
+  e1 <|> _      = e1
+
+instance Alternative Parseme where
+  empty     = Parseme $ const empty
+  --  p1 <|> p2 = Parseme $ \inp -> parser p1 inp <|> parser p2 inp
+  p1 <|> p2 = Parseme $ \inp ->
+    case parser p1 inp of
+      Right v -> Right v
+      Left _  -> parser p2 inp
+
+instance Monad Parseme where
+  return   = pure
+  mp >>= f = Parseme $ \inp ->
+     case parser mp inp of
+        Right (o, rest) -> parser (f o) rest
+        Left err        -> Left err
+
+-- parser helpers
+charP :: Char -> Parseme Char
+charP c = Parseme f where
+  f input@(item -> Just (x, xs))
+    | c == x    = Right (x, xs)
+    | otherwise = Left $ ParseError (inputLoc input) ("Can't match char: expected " <> [c] <> " with actual " <> [x])
+  f input = Left $ ParseError (inputLoc input) "Unexpected end of input string"
+
+wordP :: String -> Parseme String
+wordP str = Parseme $ \inp ->
+  case parser (traverse charP str) inp of
+    Left _ -> Left $ ParseError
+                       (inputLoc inp)
+                       ("Can't match string: expected \"" <> str
+                       <> "\" with actual \"" <> take (length str) (inputStr inp) <> "\"")
+    result -> result
+
+parseIf :: String           -- predicate description
+        -> (Char -> Bool)   -- predicate
+        -> Parseme Char
+parseIf desc pr = Parseme $ \inp ->
+  case inp of
+    (item -> Just (x, xs))
+      | pr x      -> Right (x, xs)
+      | otherwise -> Left $ ParseError (inputLoc inp) ("The symbol '" <> [x] <> "' doen't satisfy the condition: " <> desc)
+    _             -> Left $ ParseError (inputLoc inp) ("Unexpected end of unput string parsing the condition: " <> desc)
+
+someP :: Parseme a -> Parseme [a]
+someP p  = some'
+  where
+    many' = some' <|> pure []
+    some' = (:) <$> p <*> many'
+
+manyP :: Parseme a -> Parseme [a]
+manyP p  = many'
+  where
+    many' = some' <|> pure []
+    some' = (:) <$> p <*> many'
+
+digitP  = parseIf "digit" isDigit
+letterP = parseIf "letter" isLetter
+upperP  = parseIf "upper letters" isUpper
+lowerP  = parseIf "lower letters" isLower
+spaceP  = parseIf "space" isSpace
+alnumP  = digitP <|> letterP
+
+-- skip whitespaces
+ws      = manyP spaceP
+
+numberP :: Parseme Integer
+numberP = Parseme $ \inp ->
+  case parser (some digitP) inp of
+    Right (n, rest) -> Right (read n, rest)
+    Left err        -> Left err
+
+trim :: Parseme a -> Parseme a
+trim p  = ws *> p <* ws
+
 
 parseme :: IO ()
 parseme = putStrLn "parseme"
-
--- to avoice collisiont between Control.Monad and Parseme
-plusP = Parseme.mplus
-
--- Simpler parsers
-item :: Parser Char
-item = Parser $ \inp ->
-  case inp of
-    ""     -> []
-    (c:cs) -> [(c, cs)]
-
-sat :: (Char -> Bool) -> Parser Char
-sat p = Parser $ \inp ->
-  case inp of
-    (c:cs) -> if p c then [(c,cs)] else []
-    []     -> []
-
-charP :: Char -> Parser Char
-charP c = sat (== c)
-
-digitP :: Parser Char
-digitP = sat isDigit
-
-lowerP :: Parser Char
-lowerP = sat isLower
-
-upperP :: Parser Char
-upperP = sat isUpper
-
-stringP :: String -> Parser String
-stringP [] = return ""
-stringP s  = mapM charP s
-
