@@ -1,8 +1,11 @@
 module Main where
 
-import qualified MyLib (someFunc)
+import Control.Monad
+import Control.Applicative
+import Parseme
+
 
 main :: IO ()
 main = do
   putStrLn "Hello, Haskell!"
-  MyLib.someFunc
+  parseme
