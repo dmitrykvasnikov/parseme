@@ -17,6 +17,7 @@ item :: Input -> Maybe (Char, Input)
 item (Input _ []) = Nothing
 item (Input loc (c:cs)) = Just (c, Input (loc + 1) cs)
 
+-- helper to run parser for testing
 run :: Parseme a -> String -> Either ParseError (a, Input)
 run p i = parser p (Input 0 i)
 
@@ -166,8 +167,8 @@ numDoubleP = Parseme $ \inp ->
 stringP :: Parseme String
 stringP = charP '\"' *> skipP (=='\"') <* charP '\"'
 
-test :: Parseme Char
-test = charP '1' <|> charP '2'
+
+test = [wordP "--file-name", str <$> charP '=']
 
 parseme :: IO ()
 parseme = putStrLn "parseme"
