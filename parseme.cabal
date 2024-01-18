@@ -59,6 +59,7 @@ library
 
     -- Modules exported by the library.
     exposed-modules:  Parseme
+                    , Parsecli
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -68,7 +69,6 @@ library
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.19.0.0
-
     -- Directories containing source files.
     hs-source-dirs:   lib
 
@@ -91,7 +91,6 @@ executable parseme
     -- Other library packages from which modules are imported.
     build-depends:
         base ^>=4.19.0.0
-      , parseme
       , mtl
 
     -- Directories containing source files.
