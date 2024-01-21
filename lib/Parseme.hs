@@ -168,6 +168,7 @@ stringP :: Parseme String
 stringP = charP '\"' *> skipP (=='\"') <* charP '\"'
 
 
+test :: [Parseme String]
 test = [wordP "--file-name", str <$> charP '=']
 
 parseme :: IO ()
