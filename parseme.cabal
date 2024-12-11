@@ -59,6 +59,8 @@ library
 
     -- Modules exported by the library.
     exposed-modules:  Prim
+                    , Pos
+                    , Error
 
     -- Modules included in this library but not exported.
     -- other-modules:

@@ -1,5 +1,6 @@
 module Main where
 
+import           Pos
 import           Prim
 
 main :: IO ()
