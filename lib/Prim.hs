@@ -3,7 +3,7 @@
 
 module Prim where
 
-import           Control.Applicative   (Alternative (..))
+import           Control.Applicative   (Alternative (..), (<|>))
 import           Control.Monad         (MonadPlus (..), ap, mzero, void)
 import           Data.Functor.Identity (Identity (runIdentity))
 import           Error
@@ -46,8 +46,6 @@ instance Functor (ParsemeT s m) where
 instance Applicative (ParsemeT s m) where
   pure = parsemePure
   (<*>) = ap
-  p1 *> p2 = p1 `parsemeBind` const p2
-  p1 <* p2 = do x1 <- p1; void p2; return x1
 
 instance Alternative (ParsemeT s m) where
   empty = mzero
@@ -107,13 +105,14 @@ parsemeBind a f = ParsemeT $ \s cok cerr eok eerr ->
    in -- we provide in new handlers all functionality depending from result of running @a@ parser
       unParseme a s acok acerr aeok aeerr
 
+-- changed from original Parsec to support backtraking by default
 parsemePlus :: ParsemeT s m a -> ParsemeT s m a -> ParsemeT s m a
 parsemePlus m n = ParsemeT $ \s cok cerr eok eerr ->
   let meerr err =
         let neok x s' err' = eok x s' (mergeError err err')
             neerr err' = eerr (mergeError err err')
          in unParseme n s cok cerr neok neerr
-   in unParseme m s cok cerr eok meerr
+   in unParseme m s cok meerr eok meerr
 
 parseT, runPT :: (Stream s m t) => ParsemeT s m a -> SourceName -> s -> m (Either ParsemeError a)
 runPT p n s = do
@@ -140,8 +139,15 @@ failure msg = ParsemeT $ \s _ _ _ eerr -> eerr $ newError (pPos s) (Message msg)
 zero :: ParsemeT s m a
 zero = ParsemeT $ \s _ _ _ eerr -> eerr $ unknownError (pPos s)
 
+try :: ParsemeT s m a -> ParsemeT s m a
+try p = ParsemeT $ \s cok _ eok eerr -> unParseme p s cok eerr eok eerr
+
+-- tries use try for backtracing, as with standard alternative @<|>@ operator
+tries :: [ParsemeT s m a] -> ParsemeT s m a
+tries ps = foldl' (<|>) zero (map try ps)
+
 token :: (Monad m, Stream s m t) => (t -> String) -> (SourcePos -> t -> s -> SourcePos) -> (t -> Maybe a) -> ParsemeT s m a
-token showToken nextPos test = ParsemeT $ \(State stream pos) cok cerr eok eerr ->
+token showToken nextPos test = ParsemeT $ \(State stream pos) cok _ _ eerr ->
   peek stream >>= \case
     Nothing -> eerr $ newError pos (UnExpected "End of file")
     (Just (t, ts)) -> case test t of
